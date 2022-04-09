@@ -1,39 +1,8 @@
 # ANA-hidroweb
 
-Projeto de demonstração para testar a API do HIDROWEB da Agência Nacional de Águas (ANA). https://www.snirh.gov.br/hidroweb. O projeto é baseado nas requisições HTTP GET do site https://www.snirh.gov.br/hidroweb/serieshistoricas. As mesmas informaçoes podem ser verificadas através de outro módulo do sistema que apresenta as informações em outro formato de visualização (no link https://www.snirh.gov.br/gestorpcd).
+Projeto de demonstração para testar a API do HIDROWEB da Agência Nacional de Águas (ANA). https://www.snirh.gov.br/hidroweb. O projeto é baseado nas requisições HTTP GET do site https://www.snirh.gov.br/hidroweb/serieshistoricas. As mesmas informaçoes podem ser verificadas através de outro módulo do sistema que apresenta as informações em outro formato de visualização (no link http://www.snirh.gov.br/hidrotelemetria).
 
-O arquivo json retornado
-
-
-## Testes Unitários
-
-```java
-    @Test
-    void leDados_de_07abril2022_00h() {
-        params.put("periodoInicial", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
-        params.put("periodoFinal", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
-
-        //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
-        telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
-
-        assertEquals(1, telemetria[0].getMedicoes().size());
-
-        ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
-
-        Medicao dados_07abril2022_00h = medicoes.get(medicoes.size() - 1);
-
-        assertEquals(convertToDate(LocalDate.of(2022, Month.APRIL, 7)), dados_07abril2022_00h.getId().getHorDataHora());
-        assertEquals(0.0d, dados_07abril2022_00h.getHorChuva());
-        assertEquals(159, dados_07abril2022_00h.getHorNivelAdotado());
-        assertEquals(44.57d, dados_07abril2022_00h.getHorVazao());
-    }
-```
-
-
-### Resultados dos Testes Unitários em 09/04/2022
-
-![Testes unitários do projeto](imagens/testes-unitarios.PNG)
-
+As principais informações de medição, também podem ser baixadas através do site [HIDROWEB](https://www.snirh.gov.br/hidroweb/serieshistoricas) ou [HIDROTELEMETRIA]http://www.snirh.gov.br/hidrotelemetria).
 
 ## Site HIDROWEB
 
@@ -45,10 +14,67 @@ O arquivo json retornado
 [Dados de março 2022](dadosParaVerificacao/56696000-MARIO%20DE%20CARVALHO.csv)
 
 
+## Passos na recuperação da informação
+
+A sequência de passos para trazer as informações através de uma requisição REST são:
+
+1. Realizar uma requisição em `https://www.snirh.gov.br/hidroweb/rest/api/estacaotelemetrica?id={id}` passando como parâmetro o número da estação de qual irá requisitar os dados, tal como o seguinte exemplo: 
+    - `https://www.snirh.gov.br/hidroweb/rest/api/estacaotelemetrica?id=5669600`
+2. Recuperar o novo `id` da estação a partir do json retornado na requisição, para será usado na próxima requisição
+    - ![Json retornado pela requisição da estação](imagens/json-requisi%C3%A7%C3%A3o-estacao.png)
+3. Realizar uma nova requisição em `https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas?codigosEstacoes={codigosEstacoes}&tipoArquivo={tipoArquivo}&periodoInicial={periodoInicial}&periodoFinal={periodoFinal}`, abaixo um exemplo de uma requisição, usando os dados da requisição anterior (novo id da estação).
+    - `https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas?codigosEstacoes=193142390&tipoArquivo=2&periodoInicial=2022-02-11T03:00:00.000Z&periodoFinal=2022-02-12T03:00:00.000Z`
+
+
+## Testes Unitários
+
+```java
+@BeforeEach
+public void setUp() {
+    formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
+
+    params = new HashMap<>();
+    params.put("id", "5669600");
+
+    //https://www.snirh.gov.br/hidroweb/rest/api/estacaotelemetrica
+    estacao = restTemplate.getForObject(apiAnaEstacaotelemetrica, EstacaoTelemetrica.class, params);
+
+    params = new HashMap<>();
+    params.put("codigosEstacoes", estacao.getId());
+    params.put("tipoArquivo", 2);
+}
+
+@Test
+void leDados_de_07abril2022_00h() {
+    params.put("periodoInicial", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
+    params.put("periodoFinal", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
+
+    //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
+    telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+
+    assertEquals(1, telemetria[0].getMedicoes().size());
+
+    ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
+
+    Medicao dados_07abril2022_00h = medicoes.get(medicoes.size() - 1); // lê a última posição
+
+    assertEquals(convertToDate(LocalDate.of(2022, Month.APRIL, 7)), dados_07abril2022_00h.getId().getHorDataHora());
+    assertEquals(0.0d, dados_07abril2022_00h.getHorChuva());
+    assertEquals(159, dados_07abril2022_00h.getHorNivelAdotado());
+    assertEquals(44.57d, dados_07abril2022_00h.getHorVazao());
+}
+```
+
+
+### Resultados dos Testes Unitários em 09/04/2022
+
+![Testes unitários do projeto](imagens/testes-unitarios.PNG)
+
+
 ### Json parcial resultado da resquisição em 09/04/2022
 
 
-O arquivo contém mais informações sobre a estação de medição, tais como cidade, rio, bacia, posição (latitude e longitude), etc.
+AbaDeixei uma amostra do arquivo json retornado. O arquivo contém mais informações sobre a estação de medição, tais como cidade, rio, bacia, posição (latitude e longitude), etc.
 
 ```json
 [
@@ -76,7 +102,7 @@ O arquivo contém mais informações sobre a estação de medição, tais como c
         "responsavelCodigo": 1,
         "operadoraCodigo": 1,
         "menorDataPeriodo": "2010-01-26T21:00:00.000+0000",
-        "maiorDataPeriodo": "2022-04-09T05:30:00.000+0000",
+        "maiorDataPeriodo": "2022-04-07T05:30:00.000+0000",
         "responsavelSigla": "ANA",
         "operadoraSigla": "CPRM",
         "tipoEstacao": "Hidrológica",
