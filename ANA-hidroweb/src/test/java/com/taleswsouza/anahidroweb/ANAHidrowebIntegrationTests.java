@@ -100,7 +100,7 @@ class ANAHidrowebIntegrationTests {
     }
 
     @Test
-    void leDados_de_07abril2022_00h_SemPeriodoFinal() {
+    void verificaException_AoTentarLerDados_de_07abril2022_00h_SemParametroPeriodoFinal() {
         params.put("periodoInicial", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
 //        params.put("periodoFinal", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
 
