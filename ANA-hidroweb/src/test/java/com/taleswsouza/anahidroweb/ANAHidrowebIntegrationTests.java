@@ -1,8 +1,5 @@
 package com.taleswsouza.anahidroweb;
 
-import com.taleswsouza.anahidroweb.Medicao;
-import com.taleswsouza.anahidroweb.TelemetricaContent;
-import com.taleswsouza.anahidroweb.EstacaoTelemetrica;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -15,19 +12,29 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.*;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.web.client.HttpClientErrorException.BadRequest;
 import org.springframework.web.client.RestTemplate;
 
 @ExtendWith(SpringExtension.class)
 @SpringBootTest
 class ANAHidrowebIntegrationTests {
+
+    private static final String COD_ESTACAO_MARIO_DE_CARVALHO = "5669600";
 
     @Autowired
     private RestTemplate restTemplate;
@@ -35,6 +42,10 @@ class ANAHidrowebIntegrationTests {
     //?codigosEstacoes=193142390&tipoArquivo=2&periodoInicial=2022-02-11T03:00:00.000Z&periodoFinal=2022-02-12T03:00:00.000Z
     @Value("https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas?codigosEstacoes={codigosEstacoes}&tipoArquivo={tipoArquivo}&periodoInicial={periodoInicial}&periodoFinal={periodoFinal}")
     private String apiAnaGerarTelemetricas;
+
+    //?codigosEstacoes=193142390&tipoArquivo=2&periodoInicial=2022-02-11T03:00:00.000Z // -- removido parametro 'periodoFinal' para testar BadRequest
+    @Value("https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas?codigosEstacoes={codigosEstacoes}&tipoArquivo={tipoArquivo}&periodoInicial={periodoInicial}")
+    private String apiAlternativaAnaGerarTelemetricasSemPeriodoFinal;
 
     //https://www.snirh.gov.br/hidroweb/rest/api/estacaotelemetrica?id=5669600
     @Value("https://www.snirh.gov.br/hidroweb/rest/api/estacaotelemetrica?id={id}")
@@ -44,14 +55,13 @@ class ANAHidrowebIntegrationTests {
 
     private Map<String, Object> params;
     private EstacaoTelemetrica estacao;
-    private TelemetricaContent[] telemetria;
 
     @BeforeEach
     public void setUp() {
         formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
 
         params = new HashMap<>();
-        params.put("id", "5669600");
+        params.put("id", COD_ESTACAO_MARIO_DE_CARVALHO);
 
         //https://www.snirh.gov.br/hidroweb/rest/api/estacaotelemetrica
         estacao = restTemplate.getForObject(apiAnaEstacaotelemetrica, EstacaoTelemetrica.class, params);
@@ -75,7 +85,7 @@ class ANAHidrowebIntegrationTests {
         params.put("periodoFinal", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
 
         //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
-        telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+        TelemetricaContent[] telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
 
         assertEquals(1, telemetria[0].getMedicoes().size());
 
@@ -90,12 +100,58 @@ class ANAHidrowebIntegrationTests {
     }
 
     @Test
+    void leDados_de_07abril2022_00h_SemPeriodoFinal() {
+        params.put("periodoInicial", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
+//        params.put("periodoFinal", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
+
+        BadRequest exception = assertThrows(BadRequest.class, () -> {
+            //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
+            TelemetricaContent[] telemetria = restTemplate.getForObject(apiAlternativaAnaGerarTelemetricasSemPeriodoFinal, TelemetricaContent[].class, params);
+        });
+        assertEquals(exception.getStatusCode(), HttpStatus.BAD_REQUEST);
+        assertThat(exception.getRawStatusCode(), is(400));
+        assertThat(exception.getMessage(), containsString("Required Date parameter 'periodoFinal' is not present"));
+    }
+
+    @Test
+    void leDados_de_OutraEstacao_07abril2022_00h() {
+        final String COD_ESTACAO_COLATINA_PONTE = "56994500";
+
+        params = new HashMap<>();
+        params.put("id", COD_ESTACAO_COLATINA_PONTE);
+
+        //https://www.snirh.gov.br/hidroweb/rest/api/estacaotelemetrica
+        EstacaoTelemetrica estacaoColatinaPonte = restTemplate.getForObject(apiAnaEstacaotelemetrica, EstacaoTelemetrica.class, params);
+
+        params = new HashMap<>();
+        params.put("codigosEstacoes", estacaoColatinaPonte.getId());
+        params.put("tipoArquivo", 2);
+
+        params.put("periodoInicial", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));
+        params.put("periodoFinal", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 7))));;
+
+        //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
+        TelemetricaContent[] telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+
+        assertEquals(1, telemetria[0].getMedicoes().size());
+
+        ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
+
+        Medicao dados_07abril2022_00h = medicoes.get(medicoes.size() - 1);
+
+        assertEquals(convertToDate(LocalDate.of(2022, Month.APRIL, 7)), dados_07abril2022_00h.getId().getHorDataHora());
+        assertEquals(0.0d, dados_07abril2022_00h.getHorChuva());
+        assertEquals(201, dados_07abril2022_00h.getHorNivelAdotado());
+        assertEquals(666.47d, dados_07abril2022_00h.getHorVazao());
+    }
+
+    @Test
     void leDados_de_07abril2022_08h_Ate_07abril2022_12h_ContinuaTrazendoSomentoUmaMedicao_NaData_07abril2022_00h() {
         params.put("periodoInicial", formatter.format(convertToDate(LocalDateTime.of(2022, Month.APRIL, 7, 8, 0))));
         params.put("periodoFinal", formatter.format(convertToDate(LocalDateTime.of(2022, Month.APRIL, 7, 12, 0))));
 
         //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
-        telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+        TelemetricaContent[] telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
 
         ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
 
@@ -114,7 +170,7 @@ class ANAHidrowebIntegrationTests {
         params.put("periodoFinal", formatter.format(convertToDate(LocalDateTime.of(2022, Month.APRIL, 8, 0, 1))));
 
         //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
-        telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+        TelemetricaContent[] telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
 
         ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
 
@@ -145,7 +201,7 @@ class ANAHidrowebIntegrationTests {
         params.put("periodoFinal", formatter.format(convertToDate(LocalDateTime.of(2022, Month.MARCH, 31, 23, 59, 59))));
 
         //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
-        telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+        TelemetricaContent[] telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
 
         ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
 
@@ -170,7 +226,7 @@ class ANAHidrowebIntegrationTests {
         params.put("periodoFinal", formatter.format(convertToDate(LocalDateTime.of(2022, Month.MARCH, 2, 0, 0))));
 
         //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
-        telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+        TelemetricaContent[] telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
 
         ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
 
@@ -193,7 +249,7 @@ class ANAHidrowebIntegrationTests {
         params.put("periodoFinal", formatter.format(convertToDate(LocalDate.of(2022, Month.APRIL, 8))));
 
         //https://www.snirh.gov.br/hidroweb/rest/api/documento/gerarTelemetricas
-        telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
+        TelemetricaContent[] telemetria = restTemplate.getForObject(apiAnaGerarTelemetricas, TelemetricaContent[].class, params);
 
         ArrayList<Medicao> medicoes = telemetria[0].getMedicoes();
 
